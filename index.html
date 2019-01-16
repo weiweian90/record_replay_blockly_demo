@@ -1,0 +1,1127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <title>testRecordAce</title>
+    <style>
+        .button_container > button {
+            margin-right: 20px;
+        }
+        #blockly {
+            width: 50%;
+            
+        }
+        #record {
+            
+        }
+        .progress_bar {
+            width: 500px;
+            height: 10px;
+            border-radius: 5px;
+            background: #ccc;
+            margin-top: 20px;
+            /* cursor: pointer; */
+            position: relative;
+        }
+        .progress_bar_button {
+            position:absolute;
+            left: 0;
+            top: 50%;
+            transform: translate(0, -50%);
+            /* top: 0; */
+            width: 15px;
+            height: 15px;
+            background: #aaa;
+            border-radius: 50%;
+            cursor: pointer;
+        }
+        .cursor {
+            border-radius: 50%;
+            background: blue;
+            width: 10px;
+            height: 10px;
+            position: fixed;
+            top: 0;
+            left: 0;
+            z-index: 100
+        }
+        .content {
+            width: 100%;
+            display: flex;
+            flex-direction: row;
+            /* justify-content: space-between; */
+        }
+        .content > div {
+            border: 1px solid #ccc;
+            box-sizing: border-box;
+        }
+        .playBlocklyContainer {
+            position: relative;
+        }
+    </style>
+    <script src="https://code.jquery.com/jquery-1.8.3.js"></script>
+    <script src="./lib/underscore.js"></script>
+
+    <script>
+        jQuery.fn.getPath = function () {
+            // stolen from http://stackoverflow.com/a/2068381/1376627
+            if (this.length != 1) throw 'Requires one element.';
+            var path, node = this;
+            // console.log('this----', this);
+            while (node.length) {
+                var realNode = node[0], name = realNode.localName;
+                if (!name) break;
+                name = name.toLowerCase();
+
+                var parent = node.parent();
+
+                var siblings = parent.children(name);
+                if (siblings.length > 1) {
+                    name += ':eq(' + siblings.index(realNode) + ')';
+                }
+
+                path = name + (path ? '>' + path : '');
+                node = parent;
+            }
+
+            return path.split('html>')[1];
+        };
+
+        // var $ = window.jQuery;
+        $(window).load(function () {
+            $(function () {
+                // init elements
+                const $play = $('#play');
+                const $record = $('#record');
+                const $progressBar = $('.progress_bar');
+                const $progressBarButton = $('.progress_bar_button');
+                const progressBarWidth = $progressBar.width();
+                const recordIframe = document.getElementById('recordBlockly');
+                const playIframe = document.getElementById('playBlockly');
+                const $clearPlayBlockly = $('#clearPlayBlockly');
+                const $save = $('#save');
+                const $time = $('.time');
+                const $fastforwad = $('#fastforwad');
+                let blocklyEvents = [];
+                let windowSetTimeout = null;
+
+                // 定时器容器
+                const timeoutTimer = [];
+                
+                let isRecording = false;
+                let isPlaying = false;
+                let PLAY_SPEED = 1;
+
+                let startPlayTime = Date.now();
+                let startRecordingTime = Date.now();
+                let playIndex = 0;
+                const $fakeCursor = $('<div class="cursor"></div>');
+
+                // 快进当前播放事件的index
+                let fastforwadPlayIndex = 0;
+                // 是否正在快进
+                let isFastforwading = false;
+
+
+                // 这里录制和播放的events分开存放，
+                let playEvents = [];
+                
+                 // 缩放播放iframe
+                // $(playIframe).css({
+                //     'transform': 'scale(0.5)',
+                //     '-webkit-transform': `scale(0.5)`,
+                //     '-webkit-transform-origin': `0 0`
+                // });
+
+                
+
+                // Data type for storing a recording
+                // let recording = {events: [], startTime: -1, htmlCopy: ''};
+                let recordingEvents = [];
+
+                const handlers = [
+                    {
+                        eventName: 'mousemove',
+                        handler: function (e) {
+                            console.log(`mousemove录制第${recordingEvents.length}事件`);
+                            console.log('录制--mousemove', e);
+                            const path = $(e.target).getPath();
+                            console.log('录制mousemove--path', path);
+                            console.log('mousemove---e.target', $(e.target)[0]);
+                            recordingEvents.push({
+                                type: 'mousemove',
+                                x: e.pageX,
+                                y: e.pageY,
+                                target: e.target,
+                                time: Date.now(),
+                                screenX: e.screenX,
+                                screenY: e.screenY,
+                                clientX: e.clientX,
+                                clientY: e.clientY,
+                                ctrlKey: e.ctrlKey,
+                                shiftKey: e.shiftKey,
+                                altKey: e.altKey,
+                                metaKey: e.metaKey,
+                                button: e.button,
+                                buttons: e.buttons,
+                                bubbles: e.bubbles,
+                                cancelable: e.cancelable,
+                                composed: e.composed,
+                                elementPath: path
+                                // e: e
+                            })
+                        }
+                    },
+                    {
+                        eventName: 'mouseover',
+                        handler: function (e) {
+                            console.log(`mousemove录制第${recordingEvents.length}事件`);
+                            console.log('录制--mouseover', e);
+                            const path = $(e.target).getPath();
+                            console.log('录制mousemove--path', path);
+                            console.log('mouseover---e.target', $(e.target)[0]);
+                            recordingEvents.push({
+                                type: 'mouseover',
+                                x: e.pageX,
+                                y: e.pageY,
+                                target: e.target,
+                                time: Date.now(),
+                                screenX: e.screenX,
+                                screenY: e.screenY,
+                                clientX: e.clientX,
+                                clientY: e.clientY,
+                                ctrlKey: e.ctrlKey,
+                                shiftKey: e.shiftKey,
+                                altKey: e.altKey,
+                                metaKey: e.metaKey,
+                                button: e.button,
+                                buttons: e.buttons,
+                                bubbles: e.bubbles,
+                                cancelable: e.cancelable,
+                                composed: e.composed,
+                                elementPath: path
+                                // e: e
+                            })
+                        }
+                    },
+                    {
+                        eventName: 'mouseout',
+                        handler: function (e) {
+                            console.log(`mousemove录制第${recordingEvents.length}事件`);
+                            console.log('录制--mouseout', e);
+                            const path = $(e.target).getPath();
+                            console.log('录制mousemove--path', path);
+                            console.log('mouseout---e.target', $(e.target)[0]);
+                            recordingEvents.push({
+                                type: 'mouseout',
+                                x: e.pageX,
+                                y: e.pageY,
+                                target: e.target,
+                                time: Date.now(),
+                                screenX: e.screenX,
+                                screenY: e.screenY,
+                                clientX: e.clientX,
+                                clientY: e.clientY,
+                                ctrlKey: e.ctrlKey,
+                                shiftKey: e.shiftKey,
+                                altKey: e.altKey,
+                                metaKey: e.metaKey,
+                                button: e.button,
+                                buttons: e.buttons,
+                                bubbles: e.bubbles,
+                                cancelable: e.cancelable,
+                                composed: e.composed,
+                                elementPath: path
+                                // e: e
+                            })
+                        }
+                    },
+                    {
+                        eventName: 'mousedown',
+                        handler: function (e) {
+                            console.log(`mousedown录制第${recordingEvents.length}事件`);
+                            console.log('录制--mousedown', e);
+                            const path = $(e.target).getPath();
+                            console.log('录制mousedown--path', path);
+                            console.log('mousedown---e.target', $(e.target)[0]);
+                            recordingEvents.push({
+                                type: 'mousedown',
+                                x: e.pageX,
+                                y: e.pageY,
+                                target: e.target,
+                                time: Date.now(),
+                                screenX: e.screenX,
+                                screenY: e.screenY,
+                                clientX: e.clientX,
+                                clientY: e.clientY,
+                                ctrlKey: e.ctrlKey,
+                                shiftKey: e.shiftKey,
+                                altKey: e.altKey,
+                                metaKey: e.metaKey,
+                                button: e.button,
+                                buttons: e.buttons,
+                                bubbles: e.bubbles,
+                                cancelable: e.cancelable,
+                                composed: e.composed,
+                                elementPath: path,
+                                // e: e
+                            })
+                        }
+                    },
+                    {
+                        eventName: 'mouseup',
+                        handler: function (e) {
+                            console.log(`mouseup录制第${recordingEvents.length}事件`);
+                            console.log('录制--mouseup', e);
+                            const path = $(e.target).getPath();
+                            console.log('录制mouseup--path', path);
+                            console.log('mouseup---e.target', $(e.target)[0]);
+                            recordingEvents.push({
+                                type: 'mouseup',
+                                x: e.pageX,
+                                y: e.pageY,
+                                target: e.target,
+                                time: Date.now(),
+                                screenX: e.screenX,
+                                screenY: e.screenY,
+                                clientX: e.clientX,
+                                clientY: e.clientY,
+                                ctrlKey: e.ctrlKey,
+                                shiftKey: e.shiftKey,
+                                altKey: e.altKey,
+                                metaKey: e.metaKey,
+                                button: e.button,
+                                buttons: e.buttons,
+                                bubbles: e.bubbles,
+                                cancelable: e.cancelable,
+                                composed: e.composed,
+                                elementPath: path
+                                // e: e
+                            })
+                        }
+                    },
+                    {
+                        eventName: 'pointermove',
+                        handler: function (e) {
+                            console.log(`pointermove录制第${recordingEvents.length}事件`);
+                            console.log('录制--pointermove', e);
+                            const path = $(e.target).getPath();
+                            console.log('录制pointermove--path', path);
+                            console.log('pointermove---e.target', $(e.target)[0]);
+                            recordingEvents.push({
+                                type: 'pointermove',
+                                target: e.target,
+                                time: Date.now(),
+                                screenX: e.screenX,
+                                screenY: e.screenY,
+                                clientX: e.clientX,
+                                clientY: e.clientY,
+                                ctrlKey: e.ctrlKey,
+                                shiftKey: e.shiftKey,
+                                altKey: e.altKey,
+                                metaKey: e.metaKey,
+                                button: e.button,
+                                buttons: e.buttons,
+                                bubbles: e.bubbles,
+                                cancelable: e.cancelable,
+                                composed: e.composed,
+                                x: e.pageX,
+                                y: e.pageY,
+                                elementPath: path,
+                                pointerId: e.pointerId,
+                                width: e.width,
+                                height: e.height,
+                                pressure: e.pressure,
+                                tangentialPressure: e.tangentialPressure,
+                                tiltX: e.tiltX,
+                                tiltY: e.tiltY,
+                                twist: e.twist,
+                                pointerType: e.pointerType,
+                                isPrimary: e.isPrimary
+                                // e: e
+                            })
+                        }
+                    },
+                    {
+                        eventName: 'pointerdown',
+                        handler: function (e) {
+                            console.log(`pointerdown录制第${recordingEvents.length}事件`);
+                            console.log('录制--pointerdown', e);
+                            const path = $(e.target).getPath();
+                            console.log('录制pointerdown--path', path);
+                            console.log('pointerdown---e.target', $(e.target)[0]);
+                            recordingEvents.push({
+                                type: 'pointerdown',
+                                target: e.target,
+                                time: Date.now(),
+                                screenX: e.screenX,
+                                screenY: e.screenY,
+                                clientX: e.clientX,
+                                clientY: e.clientY,
+                                ctrlKey: e.ctrlKey,
+                                shiftKey: e.shiftKey,
+                                altKey: e.altKey,
+                                metaKey: e.metaKey,
+                                button: e.button,
+                                buttons: e.buttons,
+                                bubbles: e.bubbles,
+                                cancelable: e.cancelable,
+                                composed: e.composed,
+                                elementPath: path,
+                                pointerId: e.pointerId,
+                                width: e.width,
+                                height: e.height,
+                                pressure: e.pressure,
+                                tangentialPressure: e.tangentialPressure,
+                                tiltX: e.tiltX,
+                                tiltY: e.tiltY,
+                                twist: e.twist,
+                                pointerType: e.pointerType,
+                                isPrimary: e.isPrimary
+                                // e: e
+                            })
+                        }
+                    },
+                    {
+                        eventName: 'pointerup',
+                        handler: function (e) {
+                            console.log(`pointerup录制第${recordingEvents.length}事件`);
+                            console.log('录制--pointerup', e);
+                            const path = $(e.target).getPath();
+                            console.log('录制pointerup--path', path);
+                            console.log('pointerup---e.target', $(e.target)[0]);
+                            recordingEvents.push({
+                                type: 'pointerup',
+                                target: e.target,
+                                time: Date.now(),
+                                screenX: e.screenX,
+                                screenY: e.screenY,
+                                clientX: e.clientX,
+                                clientY: e.clientY,
+                                ctrlKey: e.ctrlKey,
+                                shiftKey: e.shiftKey,
+                                altKey: e.altKey,
+                                metaKey: e.metaKey,
+                                button: e.button,
+                                buttons: e.buttons,
+                                bubbles: e.bubbles,
+                                cancelable: e.cancelable,
+                                composed: e.composed,
+                                elementPath: path,
+                                pointerId: e.pointerId,
+                                width: e.width,
+                                height: e.height,
+                                pressure: e.pressure,
+                                tangentialPressure: e.tangentialPressure,
+                                tiltX: e.tiltX,
+                                tiltY: e.tiltY,
+                                twist: e.twist,
+                                pointerType: e.pointerType,
+                                isPrimary: e.isPrimary
+                                // e: e
+                            })
+                        }
+                    },
+                    {
+                        eventName: 'pointercancel',
+                        handler: function (e) {
+                            console.log(`pointercancel录制第${recordingEvents.length}事件`);
+                            console.log('录制--pointercancel', e);
+                            const path = $(e.target).getPath();
+                            console.log('录制pointercancel--path', path);
+                            console.log('pointercancel---e.target', $(e.target)[0]);
+                            recordingEvents.push({
+                                type: 'pointercancel',
+                                target: e.target,
+                                time: Date.now(),
+                                screenX: e.screenX,
+                                screenY: e.screenY,
+                                clientX: e.clientX,
+                                clientY: e.clientY,
+                                ctrlKey: e.ctrlKey,
+                                shiftKey: e.shiftKey,
+                                altKey: e.altKey,
+                                metaKey: e.metaKey,
+                                button: e.button,
+                                buttons: e.buttons,
+                                bubbles: e.bubbles,
+                                cancelable: e.cancelable,
+                                composed: e.composed,
+                                elementPath: path,
+                                pointerId: e.pointerId,
+                                width: e.width,
+                                height: e.height,
+                                pressure: e.pressure,
+                                tangentialPressure: e.tangentialPressure,
+                                tiltX: e.tiltX,
+                                tiltY: e.tiltY,
+                                twist: e.twist,
+                                pointerType: e.pointerType,
+                                isPrimary: e.isPrimary
+                                // e: e
+                            })
+                        }
+                    },
+                    {
+                        eventName: 'pointerout',
+                        handler: function (e) {
+                            console.log(`pointerout录制第${recordingEvents.length}事件`);
+                            console.log('录制--pointerout', e);
+                            const path = $(e.target).getPath();
+                            console.log('录制pointerout--path', path);
+                            
+                            recordingEvents.push({
+                                type: 'pointerout',
+                                target: e.target,
+                                time: Date.now(),
+                                screenX: e.screenX,
+                                screenY: e.screenY,
+                                clientX: e.clientX,
+                                clientY: e.clientY,
+                                ctrlKey: e.ctrlKey,
+                                shiftKey: e.shiftKey,
+                                altKey: e.altKey,
+                                metaKey: e.metaKey,
+                                button: e.button,
+                                buttons: e.buttons,
+                                bubbles: e.bubbles,
+                                cancelable: e.cancelable,
+                                composed: e.composed,
+                                elementPath: path,
+                                pointerId: e.pointerId,
+                                width: e.width,
+                                height: e.height,
+                                pressure: e.pressure,
+                                tangentialPressure: e.tangentialPressure,
+                                tiltX: e.tiltX,
+                                tiltY: e.tiltY,
+                                twist: e.twist,
+                                pointerType: e.pointerType,
+                                isPrimary: e.isPrimary
+                                // e: e
+                            })
+                        }
+                    },
+                    {
+                        eventName: 'pointerover',
+                        handler: function (e) {
+                            console.log(`pointerover录制第${recordingEvents.length}事件`);
+                            console.log('录制--pointerover', e);
+                            const path = $(e.target).getPath();
+                            console.log('录制pointerover--path', path);
+                            recordingEvents.push({
+                                type: 'pointerover',
+                                target: e.target,
+                                time: Date.now(),
+                                screenX: e.screenX,
+                                screenY: e.screenY,
+                                clientX: e.clientX,
+                                clientY: e.clientY,
+                                ctrlKey: e.ctrlKey,
+                                shiftKey: e.shiftKey,
+                                altKey: e.altKey,
+                                metaKey: e.metaKey,
+                                button: e.button,
+                                buttons: e.buttons,
+                                bubbles: e.bubbles,
+                                cancelable: e.cancelable,
+                                composed: e.composed,
+                                elementPath: path,
+                                pointerId: e.pointerId,
+                                width: e.width,
+                                height: e.height,
+                                pressure: e.pressure,
+                                tangentialPressure: e.tangentialPressure,
+                                tiltX: e.tiltX,
+                                tiltY: e.tiltY,
+                                twist: e.twist,
+                                pointerType: e.pointerType,
+                                isPrimary: e.isPrimary
+                                // e: e
+                            })
+                        }
+                    },
+                    {
+                        eventName: 'keydown',
+                        handler: function (e) {
+                            console.log(`pointerover录制第${recordingEvents.length}事件`);
+                            console.log('录制--keydown', e);
+                            const path = $(e.target).getPath();
+                            let value = '';
+                            console.log('录制keydown--path', path);
+                            // 如果target是input输入框，则录下value
+                            if (path.split('>').reverse()[0] == 'input') {
+                                value = e.target.value;
+                                console.log('value', value);
+                            }
+                            // const value = e.target.value;
+                            recordingEvents.push({
+                                type: 'keydown',
+                                target: e.target,
+                                time: Date.now(),
+                                charCode: e.charCode,
+                                code: e.code,
+                                key: e.key,
+                                keyCode: e.keyCode,
+                                type: e.type,
+                                bubbles: e.bubbles,
+                                cancelable: e.cancelable,
+                                composed: e.composed,
+                                elementPath: path,
+                                value: value
+                            })
+                        }
+                    },
+                    {
+                        eventName: 'keyup',
+                        handler: function (e) {
+                            console.log(`keyup录制第${recordingEvents.length}事件`);
+                            console.log('录制--keyup', e);
+                            const path = $(e.target).getPath();
+                            let value = '';
+                            console.log('录制keyup--path', path);
+                            // 如果target是input输入框，则录下value
+                            if (path.split('>').reverse()[0] == 'input') {
+                                value = e.target.value;
+                                console.log('value', value);
+                            }
+                            // const value = e.target.value;
+                            recordingEvents.push({
+                                type: 'keyup',
+                                target: e.target,
+                                time: Date.now(),
+                                charCode: e.charCode,
+                                code: e.code,
+                                key: e.key,
+                                keyCode: e.keyCode,
+                                type: e.type,
+                                bubbles: e.bubbles,
+                                cancelable: e.cancelable,
+                                composed: e.composed,
+                                elementPath: path,
+                                value: value
+                            })
+                        }
+                    },
+                    {
+                        eventName: 'click',
+                        handler: function (e) {
+                            console.log(`click录制第${recordingEvents.length}事件`);
+                            console.log('录制--click', e);
+                            const path = $(e.target).getPath();
+                            console.log('录制click--path', path);
+                            
+                            recordingEvents.push({
+                                type: 'click',
+                                target: e.target,
+                                time: Date.now(),
+                                charCode: e.charCode,
+                                code: e.code,
+                                key: e.key,
+                                keyCode: e.keyCode,
+                                type: e.type,
+                                bubbles: e.bubbles,
+                                cancelable: e.cancelable,
+                                composed: e.composed,
+                                elementPath: path,
+                                // value: value
+                            })
+                        }
+                    },
+                    {
+                        eventName: 'focus',
+                        handler: function (e) {
+                            console.log(`focus录制第${recordingEvents.length}事件`);
+                            console.log('录制--focus', e);
+                            const path = $(e.target).getPath();
+                            console.log('录制focus--path', path);
+                            
+                            recordingEvents.push({
+                                type: 'focus',
+                                target: e.target,
+                                time: Date.now(),
+                                charCode: e.charCode,
+                                code: e.code,
+                                key: e.key,
+                                keyCode: e.keyCode,
+                                type: e.type,
+                                bubbles: e.bubbles,
+                                cancelable: e.cancelable,
+                                composed: e.composed,
+                                elementPath: path,
+                                relatedTarget: e.relatedTarget
+                                // value: value
+                            })
+                        }
+                    },
+                    {
+                        eventName: 'wheel',
+                        handler: function (e) {
+                            console.log(`wheel录制第${recordingEvents.length}事件`);
+                            console.log('录制--wheel', e);
+                            const path = $(e.target).getPath();
+                            console.log('录制wheel--path', path);
+                            
+                            recordingEvents.push({
+                                type: 'wheel',
+                                x: e.pageX,
+                                y: e.pageY,
+                                target: e.target,
+                                time: Date.now(),
+                                screenX: e.screenX,
+                                screenY: e.screenY,
+                                clientX: e.clientX,
+                                clientY: e.clientY,
+                                ctrlKey: e.ctrlKey,
+                                shiftKey: e.shiftKey,
+                                altKey: e.altKey,
+                                metaKey: e.metaKey,
+                                button: e.button,
+                                buttons: e.buttons,
+                                bubbles: e.bubbles,
+                                cancelable: e.cancelable,
+                                composed: e.composed,
+                                elementPath: path,
+                                deltaX: e.deltaX,
+                                deltaZ: e.deltaZ,
+                                deltaY: e.deltaY,
+                                deltaMode: e.deltaMode
+                            })
+                        }
+                    },
+                    {
+                        eventName: 'contextmenu',
+                        handler: function (e) {
+                            console.log(`contextmenu录制第${recordingEvents.length}事件`);
+                            console.log('录制--contextmenu', e);
+                            const path = $(e.target).getPath();
+                            console.log('录制contextmenu--path', path);
+                            
+                            recordingEvents.push({
+                                type: 'contextmenu',
+                                x: e.pageX,
+                                y: e.pageY,
+                                target: e.target,
+                                time: Date.now(),
+                                screenX: e.screenX,
+                                screenY: e.screenY,
+                                clientX: e.clientX,
+                                clientY: e.clientY,
+                                ctrlKey: e.ctrlKey,
+                                shiftKey: e.shiftKey,
+                                altKey: e.altKey,
+                                metaKey: e.metaKey,
+                                button: e.button,
+                                buttons: e.buttons,
+                                bubbles: e.bubbles,
+                                cancelable: e.cancelable,
+                                composed: e.composed,
+                                elementPath: path,
+                                deltaX: e.deltaX,
+                                deltaZ: e.deltaZ,
+                                deltaY: e.deltaY,
+                                deltaMode: e.deltaMode
+                            })
+                        }
+                    }
+                ];
+                
+
+                $record.toggle(function startRecording() {
+                    // start recording
+                    $play.attr('disabled', 1);
+                    startRecordingTime = Date.now();
+                    recordingEvents = [];
+                    $record.text('停止');
+                    handlers.map((x)=> {
+                        listen(x.eventName, x.handler);
+                    });
+                }, function stopRecording() {
+                    // stop recording
+                    $record.text('录制');
+                    $play.removeAttr('disabled');
+                    handlers.map((x)=>removeListener(x.eventName, x.handler));
+                });
+
+
+                // Replay
+                $play.click(function() {
+                    // Insert fake cursor
+                    $(playIframe.contentDocument.body).append($fakeCursor);
+                    
+                    playIndex = 0;
+                    startPlayTime = Date.now();
+                    // 清除playIframe
+                    window.playIframe.clear();
+
+                    // 正常播放
+                    playEvents = _.clone(recordingEvents);
+                    draw();
+
+                });
+
+                // 快播
+                $fastforwad.click(function () {
+                    $(playIframe.contentDocument.body).append($fakeCursor);
+                    // 快进
+                    resetFastforwadIndex();
+                    setFastforwadEvents(recordingEvents);
+                    drawFastForward();
+
+                })
+
+                // 快进
+                function drawFastForward(callback) {
+                    
+                    // 重写playIframe的setTimeout,clearTimeout
+                    overrideTimeout();
+                    
+                    for (; fastforwadPlayIndex < fastforwadPlayEvents.length;) {
+                        let event = fastforwadPlayEvents[fastforwadPlayIndex];
+                        if (!event) {
+                            return
+                        }
+                        drawEvent(event, fastforwadPlayIndex);
+                        fastforwadPlayIndex++;
+                    }
+                    
+                    // 快进结束，将playIframe的setTimeout,clearTimeout回复
+                    restoreTimeout();
+                    callback && callback();
+                }
+
+                function draw() {
+                    if (!isFastforwading) {
+                        let offsetRecording = 0;
+                        let offsetPlay = 0;
+                        while (true) {
+                            let event = playEvents[playIndex];
+                            if (!event) {return;}
+                            // 录制事件的时间 减去 开始录制的时间
+                            offsetRecording = event.time - startRecordingTime;
+                            // 每一帧播放的当前时间 减去 开始播放的时间
+                            // 如果 PLAY_SPEED 动态改变，
+                            //  PLAY_SPEED也不是按准确的速率来执行
+                            offsetPlay = (Date.now() - startPlayTime) * 1;
+                            if (offsetPlay >= offsetRecording) {
+                                // 如果当前播放的时间差 大于或等于 录制该事件的时间差，就执行该事件
+                                drawEvent(event, playIndex);
+                                playIndex++;
+                            } else {
+                                break;
+                            }
+                        }
+                    
+                        // 绘制进度条
+                        drawProgressBar(offsetPlay);
+                        drawTime(offsetPlay);
+                        if (playIndex < playEvents.length) {
+                            requestAnimationFrame(draw);
+                        } else {
+                            // $iframe.remove();
+                            $fakeCursor.remove();
+                        }
+                    }
+                };
+
+                function drawEvent(event, i, callback) {
+                    if (event.type === 'mousemove' || event.type == 'pointermove') {
+                        // console.log('回放mousemove');
+                        $fakeCursor.css({
+                            top: event.y,
+                            left: event.x
+                        });
+                    }
+
+                    if (
+                        event.type == 'mousemove' ||
+                        event.type == 'mousedown' ||
+                        event.type == 'mouseup' ||
+                        event.type == 'click' ||
+                        event.type == 'contextmenu' ||
+                        event.type == 'mouseover' ||
+                        event.type == 'mouseout'
+                    ) {
+                        // const path = $(event.target).getPath();
+                        // 刚开始录制时，path可能会为undefined，此时需要重新获取
+                        // 此处path通过录制时获取，录制过程中target的指向会发生改变，所以需要存储录制当前target，或当前target路径
+                        const path = event.elementPath || $(event.target).getPath();
+                        // console.trace(path);
+                        if (path) {
+                            console.log(`回放${event.type}，第${i}个事件`);
+                            // console.log('回放blockly', event);
+                            // console.log('path', path);
+                            const $element = $(playIframe.contentDocument).find(path);
+                            // console.log('$element', $element);
+                            let evt = new MouseEvent(event.type, event);
+                            if ($element[0]) {
+                                $element[0].dispatchEvent(evt);
+                            } else {
+                                console.warn('missing target', path);
+                            }
+                        }
+                    } else if (
+                        event.type == 'keydown' ||
+                        event.type == 'keyup'
+                    ) {
+                        const path = event.elementPath || $(event.target).getPath();
+                        if (path) {
+                            console.log(`回放${event.type}，第${i}个事件`);
+                            const $element = $(playIframe.contentDocument).find(path);
+                            // 如果当前是input，则给该input先赋值
+                            if (path.split('>').reverse()[0] == 'input') {
+                                console.log('value---', event.value);
+                                $element.val(event.value);
+                            }
+                            var evt = new KeyboardEvent(event.type, event);
+                            if ($element[0]) {
+                                $element[0].dispatchEvent(evt);
+                            } else {
+                                console.warn('missing target', path);
+                            }
+                        }
+                    } else if (
+                        event.type == 'pointerdown' ||
+                        event.type == 'pointerup' ||
+                        event.type == 'pointermove' ||
+                        event.type == 'pointercancel' ||
+                        event.type == 'pointerover' ||
+                        event.type == 'pointerout'
+                    ) {
+                        // const path = $(event.target).getPath();
+                        // 刚开始录制时，path可能会为undefined，此时需要重新获取
+                        // 此处path通过录制时获取，录制过程中target的指向会发生改变，所以需要存储录制当前target，或当前target路径
+                        const path = event.elementPath || $(event.target).getPath();
+                        // console.trace(path);
+                        if (path) {
+                            console.log(`回放${event.type}，第${i}个事件`);
+                            // console.log('回放blockly', event);
+                            // console.log('path', path);
+                            const $element = $(playIframe.contentDocument).find(path);
+                            // console.log('$element', $element);
+                            let evt = new PointerEvent(event.type, event);
+                            if ($element[0]) {
+                                $element[0].dispatchEvent(evt);
+                            } else {
+                                console.warn('missing target', path);
+                            }
+                        }
+                    } else if (
+                        event.type == 'focus' ||
+                        event.type == 'blur'
+                    ) {
+                        const path = event.elementPath || $(event.target).getPath();
+                        // console.trace(path);
+                        if (path) {
+                            console.log(`回放${event.type}，第${i}个事件`);
+                            // console.log('回放blockly', event);
+                            // console.log('path', path);
+                            const $element = $(playIframe.contentDocument).find(path);
+                            // console.log('$element', $element);
+                            let evt = new FocusEvent(event.type, event);
+                            if ($element[0]) {
+                                $element[0].dispatchEvent(evt);
+                            } else {
+                                console.warn('missing target', path);
+                            }
+                        }
+                    } else if (
+                        event.type == 'wheel'
+                    ) {
+                        // 滚轮事件
+                        const path = event.elementPath || $(event.target).getPath();
+                        // console.trace(path);
+                        if (path) {
+                            console.log(`回放${event.type}，第${i}个事件`);
+                            // console.log('回放blockly', event);
+                            // console.log('path', path);
+                            const $element = $(playIframe.contentDocument).find(path);
+                            // console.log('$element', $element);
+                            // WheelEvent 是标准， MouseWheelEvent和 MouseScrollEvent兼容性不太好
+                            let evt = new WheelEvent(event.type, event);
+                            if ($element[0]) {
+                                $element[0].dispatchEvent(evt);
+                            } else {
+                                console.warn('missing target', path);
+                            }
+                        }
+                    } else if (event.type == 'timeout_task') {
+                        console.log(`回放${event.type}，第${i}个事件`);
+                        console.log('回放event', event);
+                        if (timeoutTimer.indexOf(event.timeoutId) !== -1) {
+                            event.fn && event.fn.apply(null, event.args);
+                        }
+                    }
+                    callback && callback();
+                }
+
+                function drawProgressBar(offsetPlay) {
+                    let lastEvent = playEvents[playEvents.length - 1];
+                    const lastEventTime = playEvents[playEvents.length - 1].time;
+                    $progressBarButton.css({
+                        left: progressBarWidth * (offsetPlay / (lastEventTime - startRecordingTime))
+                    });
+                }
+
+                $progressBar.click(function (e) {
+                    // return;
+                    var rectObj = e.target.getBoundingClientRect();
+                    let left = e.pageX - rectObj.left;
+                    let changeIndex = 0;
+                    let eventTime = 0;
+
+                    isFastforwading = true;
+
+                    // 1. 先找到快进位置对应的时间戳和浏览器事件
+                    let recordAllTime = playEvents[playEvents.length - 1].time - startRecordingTime;
+                    for (var i = 0, len = playEvents.length; i < len; i++) {
+                        if ((playEvents[i].time - startRecordingTime) / recordAllTime >= left / progressBarWidth) {
+                            changeIndex = i;
+                            eventTime = playEvents[i].time;
+                            break;
+                        }
+                    }
+
+                    // 先清空之前播放的blockly块
+                    window.playIframe.clear();
+                    $progressBarButton.css({
+                        left: left
+                    });
+                    if (changeIndex) {
+
+                        //先设置快进的事件，执行快进
+                        console.log('changeIndex----', changeIndex);
+                        let fastForwadEvents = playEvents.slice(0, changeIndex);
+                        setFastforwadEvents(fastForwadEvents);
+                        resetFastforwadIndex();
+                        drawFastForward(function () {
+                            isFastforwading = false;
+
+                            playIndex = changeIndex;
+                            startPlayTime = Date.now() - (playEvents[playIndex].time - startRecordingTime);
+
+                            draw();
+                        })
+
+                    }
+                });
+
+                function overrideTimeout() {
+                    window.playIframe.setTimeout = function (fn, time) {
+                        let args = Array.prototype.slice.call(arguments, 2);
+                        // console.log('回放timeout事件');
+                        // 当前播放时间会触发setTimeout等相关任务，
+                        // 将当前任务插入到fastforwadplayEvents中执行
+                        let currentEventTimestamp = fastforwadPlayEvents[fastforwadPlayIndex].time;
+                        let taskPlayTime = currentEventTimestamp * 1 + time * 1;
+                        let insertIndex = fastforwadPlayIndex + 1;
+                        for (let i = fastforwadPlayIndex + 1; i < fastforwadPlayEvents.length; i++) {
+                            if (taskPlayTime < fastforwadPlayEvents[i].time) {
+                                insertIndex = i;
+                                break;
+                            } else {
+                                // 如果任务执行的时间大于所有事件时间，
+                                // 循环结束，任务插入的位置为事件列表的尾部
+                                insertIndex = i;
+                            }
+                        }
+                        console.log('taskPlayTime---------------', taskPlayTime);
+                        console.log('currentEventTimestamp', currentEventTimestamp);
+                        console.log('time', time);
+                        console.log('fastforwadPlayIndex', fastforwadPlayIndex);
+                        console.log('insertIndex', insertIndex);
+
+                        fastforwadPlayEvents.splice(insertIndex, 0, {
+                            type: 'timeout_task',
+                            time: taskPlayTime,
+                            fn: fn,
+                            args: args,
+                            // 将任务执行时间戳设为定时器id，用来决定该回调函数是否执行
+                            timeoutId: taskPlayTime
+                        });
+                        timeoutTimer.push(taskPlayTime);
+                        return taskPlayTime;
+                    }
+
+                    window.playIframe.clearTimeout = function (timeoutId) {
+                        let index = timeoutTimer.indexOf(timeoutId);
+                        if (index !== -1) {
+                            timeoutTimer.splice(index, 1);
+                        }
+                    }
+                }
+
+                function restoreTimeout() {
+                    window.playIframe.setTimeout = window.setTimeout;
+                    window.playIframe.clearTimeout = window.clearTimeout;
+                }
+
+                // 快进结束后，重置当前快进index
+                function resetFastforwadIndex() {
+                    fastforwadPlayIndex = 0;
+                }
+
+                // 设置快进index
+                function setFastforwadIndex(index) {
+                    fastforwadPlayIndex = index;
+                }
+
+                // 设置快进播放事件
+                function setFastforwadEvents(events) {
+                    fastforwadPlayEvents = _.clone(events);
+                }
+
+                $clearPlayBlockly.click(function () {
+                    window.playIframe.clear();
+                });
+                function drawTime(time) {
+                    time = formatDate(time);
+                    $time.text(time);
+                }
+                function formatDate(time) {
+                    var hour = Math.floor(time / (1000 * 60 * 60));
+                    var restTime = time % (1000 * 60 * 60);
+                    var minite = Math.floor(restTime / (1000 * 60));
+                    restTime = restTime % (1000 * 60);
+                    var seconds = Math.floor(restTime / (1000));
+                    return `${hour}:${minite}:${seconds}s`;
+                }
+                // Helpers
+                function listen(eventName, handler) {
+                    // return document.documentElement.addEventListener(eventName, handler, true);
+                    return recordIframe.contentDocument.addEventListener(eventName, handler, true);
+                }
+                function removeListener(eventName, handler) {
+                    // removes listen even if stopPropagation
+                    // return document.documentElement.removeEventListener(eventName, handler, true);
+                    return recordIframe.contentDocument.removeEventListener(eventName, handler, true);
+                }
+            })
+        })
+
+    </script>
+</head>
+<body>
+    <div class="button_container">
+        <button id="record">录制</button>
+        <button id="play">播放</button>
+        <button id="fastforwad">快播</button>
+        <!-- <button id="blocklyEventPlay">blockly事件播放</button> -->
+        <button id="clearPlayBlockly">清空录制blockly</button>
+        <!-- <button id="save">保存</button> -->
+    </div>
+    <div class="progress_bar">
+        <span class="progress_bar_button"></span>
+    </div>
+    <div class="time"></div>
+    <div class="content">
+        <iframe name="recordIframe" id="recordBlockly" style="width: 800px;height: 700px;border: 1px solid #ccc" src="./blockly.html"></iframe>
+        <div class="playBlocklyContainer">
+            <iframe name="playIframe" id="playBlockly" style="width: 800px;height: 700px;border: 1px solid #000" src="./blockly.html"></iframe>
+            <div class="shadow"></div>
+        </div>
+    </div>
+</body>
+</html>
